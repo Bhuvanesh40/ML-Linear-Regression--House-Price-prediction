@@ -6,8 +6,11 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
+import time
 
 app = FastAPI(title="Machine Learning Master Suite API")
+
+APP_START_TIME = time.time()
 
 app.add_middleware(
     CORSMiddleware,
@@ -672,6 +675,27 @@ def home():
   </script>
 </body>
 </html>"""
+
+
+# ==============================================================================
+# HEALTH & UPTIME ENDPOINTS (for 24/7 keep-alive monitoring)
+# ==============================================================================
+@app.get("/health")
+def health_check():
+    """Health check endpoint for Render.com and uptime monitors."""
+    uptime_seconds = int(time.time() - APP_START_TIME)
+    return {
+        "status": "healthy",
+        "uptime_seconds": uptime_seconds,
+        "uptime_hours": round(uptime_seconds / 3600, 2),
+        "app": "ML Master Suite",
+        "version": "2.0.0"
+    }
+
+@app.get("/ping")
+def ping():
+    """Lightweight ping endpoint to prevent Render free-tier spin-down."""
+    return {"pong": True, "timestamp": int(time.time())}
 
 
 # ==============================================================================

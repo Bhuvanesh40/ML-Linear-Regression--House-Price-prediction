@@ -224,10 +224,10 @@ def home():
   </div>
 
   <div class="nav-tabs">
-    <button class="tab-btn active" onclick="switchTab('tab1')">🏡 1. House Price Regression</button>
-    <button class="tab-btn" onclick="switchTab('tab2')">🎯 2. Churn Classification (5 Models)</button>
-    <button class="tab-btn" onclick="switchTab('tab3')">🧩 3. Unsupervised Clustering (3 Models)</button>
-    <button class="tab-btn" onclick="switchTab('tab4')">📉 4. Dim Reduction (PCA & t-SNE)</button>
+    <button class="tab-btn active" onclick="switchTab('tab1', event)">🏡 1. House Price Regression</button>
+    <button class="tab-btn" onclick="switchTab('tab2', event)">🎯 2. Churn Classification (5 Models)</button>
+    <button class="tab-btn" onclick="switchTab('tab3', event)">🧩 3. Unsupervised Clustering (3 Models)</button>
+    <button class="tab-btn" onclick="switchTab('tab4', event)">📉 4. Dim Reduction (PCA &amp; t-SNE)</button>
   </div>
 
   <div class="container">
@@ -448,19 +448,20 @@ def home():
     let clusterChartInstance = null;
     let dimChartInstance = null;
 
-    function switchTab(tabId) {
+    function switchTab(tabId, evt) {
       document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-      
-      event.target.classList.add('active');
+
+      if (evt && evt.currentTarget) evt.currentTarget.classList.add('active');
       document.getElementById(tabId).classList.add('active');
 
-      if (tabId === 'tab2' && !window.p2MetricsLoaded) loadClassificationMetrics();
       if (tabId === 'tab3' && !clusteringData) loadClusteringData();
       if (tabId === 'tab4' && !dimData) loadDimData();
     }
 
-    // PILLAR 1: PREDICT PRICE
+    // ─────────────────────────────────────────────────────────────────
+    // PILLAR 1: REGRESSION — House Price Prediction
+    // ─────────────────────────────────────────────────────────────────
     async function predictPrice() {
       const payload = {
         OverallQual: parseInt(document.getElementById("p1_qual").value),
@@ -478,7 +479,7 @@ def home():
       box.style.display = "block";
       box.style.background = "#1e293b";
       box.style.color = "#94a3b8";
-      box.innerText = "Calculating valuation...";
+      box.innerText = "⏳ Calculating valuation...";
 
       try {
         const res = await fetch("/api/predict-price", {
@@ -486,36 +487,50 @@ def home():
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: "Server error" }));
+          throw new Error(err.detail || "HTTP " + res.status);
+        }
         const data = await res.json();
+        const price = parseFloat(data.predicted_price);
+        if (isNaN(price)) throw new Error("Invalid price response from server.");
         box.style.background = "#14532d";
         box.style.color = "#86efac";
-        box.innerText = "Estimated Valuation: $" + Number(data.predicted_price).toLocaleString();
+        box.innerText = "🏡 Estimated Valuation: $" + price.toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
       } catch (err) {
         box.style.background = "#7f1d1d";
         box.style.color = "#fca5a5";
-        box.innerText = "Error predicting price.";
+        box.innerText = "❌ Error: " + err.message;
       }
     }
 
-    // PILLAR 2: CLASSIFICATION
+    // ─────────────────────────────────────────────────────────────────
+    // PILLAR 2: CLASSIFICATION — Metrics + Churn Prediction
+    // ─────────────────────────────────────────────────────────────────
     async function loadClassificationMetrics() {
+      const tbody = document.getElementById("p2_metrics_body");
+      tbody.innerHTML = "<tr><td colspan='6' style='color:#94a3b8;'>Loading benchmark metrics...</td></tr>";
       try {
         const res = await fetch("/api/classification-metrics");
+        if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
-        const tbody = document.getElementById("p2_metrics_body");
         tbody.innerHTML = "";
         data.metrics.forEach(row => {
+          const acc  = (row["Accuracy"]  * 100).toFixed(1);
+          const prec = (row["Precision"] * 100).toFixed(1);
+          const rec  = (row["Recall"]    * 100).toFixed(1);
+          const f1   = parseFloat(row["F1-Score"]).toFixed(3);
+          const auc  = parseFloat(row["ROC-AUC"]).toFixed(3);
           tbody.innerHTML += `<tr>
             <td style="font-weight:600; color:var(--text-main);">${row["Algorithm"]}</td>
-            <td>${(row["Accuracy"]*100).toFixed(1)}%</td>
-            <td>${(row["Precision"]*100).toFixed(1)}%</td>
-            <td>${(row["Recall"]*100).toFixed(1)}%</td>
-            <td>${row["F1-Score"].toFixed(3)}</td>
-            <td><strong>${row["ROC-AUC"].toFixed(3)}</strong></td>
+            <td>${acc}%</td><td>${prec}%</td><td>${rec}%</td>
+            <td>${f1}</td>
+            <td><strong style="color:var(--accent-green);">${auc}</strong></td>
           </tr>`;
         });
-        window.p2MetricsLoaded = true;
-      } catch(e) {}
+      } catch(e) {
+        tbody.innerHTML = `<tr><td colspan='6' style='color:#fca5a5;'>⚠ Could not load metrics: ${e.message}</td></tr>`;
+      }
     }
 
     async function predictChurn() {
@@ -535,7 +550,7 @@ def home():
       box.style.display = "block";
       box.style.background = "#1e293b";
       box.style.color = "#94a3b8";
-      box.innerText = "Running classifier inference...";
+      box.innerText = "⏳ Running classifier inference...";
 
       try {
         const res = await fetch("/api/predict-churn", {
@@ -543,40 +558,53 @@ def home():
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: "Server error" }));
+          throw new Error(err.detail || "HTTP " + res.status);
+        }
         const data = await res.json();
-        if (data.churn_prediction === 1) {
+        const prob      = parseFloat(data.churn_probability);
+        const pred      = parseInt(data.churn_prediction);
+        const modelName = data.model || payload.Algorithm;
+        if (isNaN(prob)) throw new Error("Invalid probability in server response.");
+        if (pred === 1) {
           box.style.background = "#7f1d1d";
           box.style.color = "#fca5a5";
-          box.innerText = `🚨 Churn Risk Detected (Probability: ${(data.churn_probability*100).toFixed(1)}%) using ${data.model}`;
+          box.innerText = "🚨 Churn Risk Detected — Probability: " + (prob * 100).toFixed(1) + "%   |   Model: " + modelName;
         } else {
           box.style.background = "#14532d";
           box.style.color = "#86efac";
-          box.innerText = `✅ Loyal Customer (Probability of Staying: ${((1-data.churn_probability)*100).toFixed(1)}%) using ${data.model}`;
+          box.innerText = "✅ Loyal Customer — Probability of Staying: " + ((1 - prob) * 100).toFixed(1) + "%   |   Model: " + modelName;
         }
       } catch (err) {
         box.style.background = "#7f1d1d";
         box.style.color = "#fca5a5";
-        box.innerText = "Error running churn prediction.";
+        box.innerText = "❌ Error: " + err.message;
       }
     }
 
+    // ─────────────────────────────────────────────────────────────────
     // PILLAR 3: CLUSTERING
+    // ─────────────────────────────────────────────────────────────────
     async function loadClusteringData() {
+      const tbody = document.getElementById("p3_metrics_body");
+      tbody.innerHTML = "<tr><td colspan='3' style='color:#94a3b8;'>Loading clustering evaluation...</td></tr>";
       try {
         const res = await fetch("/api/clustering-data");
+        if (!res.ok) throw new Error("HTTP " + res.status);
         clusteringData = await res.json();
-        
-        const tbody = document.getElementById("p3_metrics_body");
         tbody.innerHTML = "";
         clusteringData.metrics.forEach(row => {
           tbody.innerHTML += `<tr>
             <td style="font-weight:600;">${row["Algorithm"]}</td>
-            <td><strong>${row["Silhouette Score"].toFixed(4)}</strong></td>
+            <td><strong style="color:var(--accent-green);">${parseFloat(row["Silhouette Score"]).toFixed(4)}</strong></td>
             <td style="color:var(--text-muted);">${row["Parameters"]}</td>
           </tr>`;
         });
         renderClusteringChart();
-      } catch(e) {}
+      } catch(e) {
+        tbody.innerHTML = `<tr><td colspan='3' style='color:#fca5a5;'>⚠ Could not load data: ${e.message}</td></tr>`;
+      }
     }
 
     function renderClusteringChart() {
@@ -587,17 +615,17 @@ def home():
         "DBSCAN": "DBSCAN_Cluster",
         "Hierarchical Clustering": "Hierarchical_Cluster"
       };
-      const key = colMap[selectedAlgo];
-      const colors = ['#38bdf8', '#818cf8', '#34d399', '#fb7185', '#facc15', '#a78bfa'];
-
+      const key    = colMap[selectedAlgo];
+      const colors = ['#38bdf8','#818cf8','#34d399','#fb7185','#facc15','#a78bfa'];
       const datasets = {};
       clusteringData.plot.forEach(pt => {
-        const cId = pt[key];
+        const cId = String(pt[key]);
         if (!datasets[cId]) {
           datasets[cId] = {
-            label: `Cluster ${cId}`,
+            label: "Cluster " + cId,
             data: [],
-            backgroundColor: colors[Math.abs(cId) % colors.length]
+            backgroundColor: colors[Math.abs(parseInt(cId) || 0) % colors.length],
+            pointRadius: 6, pointHoverRadius: 9
           };
         }
         datasets[cId].data.push({ x: pt["Annual Income (k$)"], y: pt["Spending Score (1-100)"] });
@@ -605,73 +633,85 @@ def home():
 
       const ctx = document.getElementById('clusteringChart').getContext('2d');
       if (clusterChartInstance) clusterChartInstance.destroy();
-
       clusterChartInstance = new Chart(ctx, {
         type: 'scatter',
         data: { datasets: Object.values(datasets) },
         options: {
-          responsive: true,
-          maintainAspectRatio: false,
+          responsive: true, maintainAspectRatio: false,
           scales: {
             x: { title: { display: true, text: 'Annual Income (k$)', color: '#94a3b8' }, grid: { color: '#334155' }, ticks: { color: '#cbd5e1' } },
             y: { title: { display: true, text: 'Spending Score (1-100)', color: '#94a3b8' }, grid: { color: '#334155' }, ticks: { color: '#cbd5e1' } }
           },
-          plugins: { legend: { labels: { color: '#f8fafc' } } }
+          plugins: { legend: { labels: { color: '#f8fafc', padding: 16 } } }
         }
       });
     }
 
+    // ─────────────────────────────────────────────────────────────────
     // PILLAR 4: DIMENSIONALITY REDUCTION
+    // ─────────────────────────────────────────────────────────────────
     async function loadDimData() {
+      document.getElementById("p4_info_text").innerText = "Loading projection data...";
       try {
         const res = await fetch("/api/dim-reduction-data");
+        if (!res.ok) throw new Error("HTTP " + res.status);
         dimData = await res.json();
         renderDimChart();
-      } catch(e) {}
+      } catch(e) {
+        document.getElementById("p4_info_text").innerText = "⚠ Could not load data: " + e.message;
+      }
     }
 
     function renderDimChart() {
       if (!dimData) return;
-      const algo = document.getElementById("p4_algo").value;
+      const algo     = document.getElementById("p4_algo").value;
       const infoText = document.getElementById("p4_info_text");
-
       let xKey, yKey;
       if (algo === 'PCA') {
         xKey = 'PCA_1'; yKey = 'PCA_2';
-        infoText.innerText = `Total Information Retained in 2D: ${(dimData.metrics.PCA_Total_Var*100).toFixed(2)}% (PC1: ${(dimData.metrics.PCA_PC1_Var*100).toFixed(1)}%, PC2: ${(dimData.metrics.PCA_PC2_Var*100).toFixed(1)}%)`;
+        const tv  = (dimData.metrics.PCA_Total_Var  * 100).toFixed(2);
+        const pc1 = (dimData.metrics.PCA_PC1_Var    * 100).toFixed(1);
+        const pc2 = (dimData.metrics.PCA_PC2_Var    * 100).toFixed(1);
+        infoText.innerText = "Total Information Retained in 2D: " + tv + "%   (PC1: " + pc1 + "%,  PC2: " + pc2 + "%)";
       } else {
         xKey = 'tSNE_1'; yKey = 'tSNE_2';
-        infoText.innerText = `Non-linear Neighborhood Embedding — Final KL Divergence: ${dimData.metrics.tSNE_KL_Divergence.toFixed(4)}`;
+        const kl = parseFloat(dimData.metrics.tSNE_KL_Divergence).toFixed(4);
+        infoText.innerText = "Non-linear Neighborhood Embedding — Final KL Divergence: " + kl;
       }
 
-      const points = dimData.dim_df.map(pt => ({
-        x: pt[xKey],
-        y: pt[yKey]
-      }));
+      const points = dimData.dim_df
+        .map(pt => ({ x: parseFloat(pt[xKey]), y: parseFloat(pt[yKey]) }))
+        .filter(pt => !isNaN(pt.x) && !isNaN(pt.y));
 
       const ctx = document.getElementById('dimChart').getContext('2d');
       if (dimChartInstance) dimChartInstance.destroy();
-
       dimChartInstance = new Chart(ctx, {
         type: 'scatter',
         data: {
           datasets: [{
-            label: `${algo} 2D Projection`,
+            label: algo + " 2D Projection",
             data: points,
-            backgroundColor: '#818cf8'
+            backgroundColor: '#818cf8',
+            pointRadius: 5, pointHoverRadius: 7
           }]
         },
         options: {
-          responsive: true,
-          maintainAspectRatio: false,
+          responsive: true, maintainAspectRatio: false,
           scales: {
-            x: { title: { display: true, text: `${algo}_1`, color: '#94a3b8' }, grid: { color: '#334155' }, ticks: { color: '#cbd5e1' } },
-            y: { title: { display: true, text: `${algo}_2`, color: '#94a3b8' }, grid: { color: '#334155' }, ticks: { color: '#cbd5e1' } }
+            x: { title: { display: true, text: algo + " — Dimension 1", color: '#94a3b8' }, grid: { color: '#334155' }, ticks: { color: '#cbd5e1' } },
+            y: { title: { display: true, text: algo + " — Dimension 2", color: '#94a3b8' }, grid: { color: '#334155' }, ticks: { color: '#cbd5e1' } }
           },
           plugins: { legend: { labels: { color: '#f8fafc' } } }
         }
       });
     }
+
+    // ── INIT: pre-load ALL data immediately on page ready ──────────────
+    document.addEventListener('DOMContentLoaded', function() {
+      loadClassificationMetrics();
+      loadClusteringData();
+      loadDimData();
+    });
   </script>
 </body>
 </html>"""
